@@ -178,6 +178,31 @@ export function countsOn(
     many times the switch moved. */
 export type DayBucket = { useful: number; spans: number; switches: number };
 
+/** A day's share of a stretch, once the five-minute rule has had its say. */
+type Slice = { day: number; from: number; to: number };
+
+/** The parts of `span` that count as work: cut at every midnight it crosses, and
+    each judged against the five-minute floor on its own. The one place that
+    rule is applied — the day totals and the switch times both take their slices
+    from here, so a day can never hold time that one of them saw and the other
+    did not. */
+function countingSlices(span: Span, now: number): Slice[] {
+  const end = cappedEnd(span, now);
+  const parts: Slice[] = [];
+
+  for (let cursor = span.start; cursor < end; ) {
+    const day = startOfDay(cursor);
+    const dayEnd = dayBounds(cursor)[1];
+    const sliceEnd = Math.min(end, dayEnd);
+    if (countsOn(span, day, dayEnd, now)) {
+      parts.push({ day, from: cursor, to: sliceEnd });
+    }
+    cursor = sliceEnd;
+  }
+
+  return parts;
+}
+
 /** One pass over the log, cutting every stretch at each midnight it crosses, so
     that a day's figures are a lookup rather than a rescan — which is what makes
     the all-history periods affordable to open. */
@@ -195,36 +220,105 @@ export function bucketByDay(
   };
 
   for (const span of spans) {
-    const end = cappedEnd(span, now);
-    // The first and the last day that took a slice of this stretch. A switch is
-    // counted only on a day that holds some of the work, which is what keeps a
-    // stretch ending exactly at midnight from leaving a "1 switch, no time"
-    // day behind it — and what keeps a stretch that counted nowhere from
-    // moving the switch at all.
-    let first: number | null = null;
-    let last: number | null = null;
-
-    for (let cursor = span.start; cursor < end; ) {
-      const day = startOfDay(cursor);
-      const dayEnd = dayBounds(cursor)[1];
-      const sliceEnd = Math.min(end, dayEnd);
-      if (countsOn(span, day, dayEnd, now)) {
-        const bucket = at(day);
-        bucket.useful += sliceEnd - cursor;
-        bucket.spans += 1;
-        if (first === null) first = day;
-        last = day;
-      }
-      cursor = sliceEnd;
+    const parts = countingSlices(span, now);
+    for (const part of parts) {
+      const bucket = at(part.day);
+      bucket.useful += part.to - part.from;
+      bucket.spans += 1;
     }
 
     // The switch moved once when the stretch opened and once when it closed; a
-    // stretch still running has only made the first of the two.
-    if (first !== null) at(first).switches += 1;
-    if (span.end !== null && last !== null) at(last).switches += 1;
+    // stretch still running has only made the first of the two. Either move is
+    // counted only on a day that holds some of the work, which is what keeps a
+    // stretch ending exactly at midnight from leaving a "1 switch, no time" day
+    // behind it — and what keeps a stretch that counted nowhere from moving the
+    // switch at all.
+    const first = parts[0]?.day;
+    const last = parts[parts.length - 1]?.day;
+    if (first !== undefined) at(first).switches += 1;
+    if (span.end !== null && last !== undefined) at(last).switches += 1;
   }
 
   return buckets;
+}
+
+/** One movement of the switch: when it happened, and which way it went. */
+export type Switch = { at: number; into: boolean };
+
+/** Every movement of the switch, filed under the day that counts it — a move
+    onto useful under the first day that counts the stretch it opened, a move
+    back to rest under the last. Each day's list comes back in order.
+
+    The moves a day holds are exactly the ones its `switches` count runs to, so
+    "how many times" and "at what times" are two readings of one set of events
+    rather than two tallies that could disagree. */
+export function switchTimes(
+  spans: Span[],
+  now: number,
+): Map<number, Switch[]> {
+  const times = new Map<number, Switch[]>();
+  const file = (day: number, move: Switch) => {
+    const found = times.get(day);
+    if (found) found.push(move);
+    else times.set(day, [move]);
+  };
+
+  for (const span of spans) {
+    const parts = countingSlices(span, now);
+    const first = parts[0]?.day;
+    const last = parts[parts.length - 1]?.day;
+    if (first !== undefined) file(first, { at: span.start, into: true });
+    if (span.end !== null && last !== undefined) {
+      file(last, { at: span.end, into: false });
+    }
+  }
+
+  for (const list of times.values()) list.sort((a, b) => a.at - b.at);
+  return times;
+}
+
+/** The days the log holds, oldest first — the order anything that accumulates
+    has to be walked in. */
+export function daysAscending(buckets: Map<number, DayBucket>): number[] {
+  return [...buckets.keys()].sort((a, b) => a - b);
+}
+
+/** The runs of back-to-back days that each hold some useful time, oldest first.
+    Days are joined by their edges rather than by adding 24 h, so a change of
+    daylight saving does not read as a day gone missing. */
+export function dayRuns(buckets: Map<number, DayBucket>): number[][] {
+  const runs: number[][] = [];
+
+  for (const day of daysAscending(buckets)) {
+    const run = runs[runs.length - 1];
+    const last = run?.[run.length - 1];
+    if (last !== undefined && dayBounds(last)[1] === day) run.push(day);
+    else runs.push([day]);
+  }
+
+  return runs;
+}
+
+/** The days the switch was still on at or after `hour`, local — the days a
+    stretch was still running into that hour, whether or not anything was
+    switched. Read from the slices rather than from the moves, because the hour
+    can fall in the middle of a stretch: someone who starts at ten and stops at
+    six never moves the switch at eleven, and was at it all the same. */
+export function daysStillOnAt(
+  spans: Span[],
+  now: number,
+  hour: number,
+): Set<number> {
+  const days = new Set<number>();
+  const mark = hour * 3_600_000;
+
+  for (const span of spans) {
+    for (const part of countingSlices(span, now)) {
+      if (part.to - part.day > mark) days.add(part.day);
+    }
+  }
+
+  return days;
 }
 
 /** The local midnights from `first` to `last`, both ends included. */

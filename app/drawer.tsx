@@ -5,6 +5,13 @@ import { createPortal } from "react-dom";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import type { Period, Span } from "./spans";
 import {
+  PERFECT_DAY_RULE,
+  milestones,
+  type Milestone,
+  type MilestoneGroup,
+} from "./achievements";
+import { downloadCsv } from "./csv";
+import {
   MIN_USEFUL_MS,
   PERIODS,
   averageOver,
@@ -112,6 +119,259 @@ function Metric({ label, value }: { label: string; value: string }) {
       </div>
       <div className="mt-2 font-display text-xl font-semibold leading-none tracking-tight tabular-nums text-foreground">
         {value}
+      </div>
+    </div>
+  );
+}
+
+/** The circumference of a tile's ring — a 48px circle with a 4px stroke, so a
+    radius of 22. Drawn as one dash this long, then shortened. */
+const RING = 2 * Math.PI * 22;
+
+/** The ring, which is the whole of the progress and the only colour the drawer
+    spends on a milestone: the green the rest of the sheet keeps for useful
+    time, drawn whether or not the thing is done — an arc is progress, and
+    progress is green here. What a finished milestone earns on top is the tick
+    at the middle of the circle.
+
+    Nothing is ever drawn as a dot, so the milestones that are simply on or off
+    — the first switch, the early start, the late night — read as an empty ring
+    or a full one and nothing in between; `achievements.ts` hands those a
+    progress of exactly 0 or 1. */
+function Ring({ item }: { item: Milestone }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 48 48" className="h-12 w-12 shrink-0">
+      <circle
+        cx="24"
+        cy="24"
+        r="22"
+        fill="none"
+        strokeWidth="4"
+        className="stroke-hover-bg-strong"
+      />
+      <circle
+        cx="24"
+        cy="24"
+        r="22"
+        fill="none"
+        strokeWidth="4"
+        strokeLinecap="round"
+        // One dash as long as the ring, shortened by the offset: what is left
+        // drawn is exactly the arc that has been earned.
+        strokeDasharray={RING}
+        strokeDashoffset={RING * (1 - item.progress)}
+        // Begins at twelve rather than at three, the way a dial reads.
+        transform="rotate(-90 24 24)"
+        className="stroke-useful-mark"
+      />
+      {item.reached ? (
+        // Inside the ring, in the ring's own green: there is nothing more to
+        // say about a milestone that is done than that it is done.
+        <path
+          d="m16.8 24.6 4.8 4.8 9.6-10.8"
+          fill="none"
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="stroke-useful-mark"
+        />
+      ) : null}
+    </svg>
+  );
+}
+
+/** What a milestone is called, standing on top of its ring. It is the one line
+    worth lifting out of the block below: the ring is where the eye lands, and
+    the name tells it what it has landed on before the reading starts. The
+    `mb-3` is the same air the ring used to keep above its own name.
+
+    The rule it asks for is spelled out for anyone the label does not reach. */
+function Name({ item }: { item: Milestone }) {
+  return (
+    <>
+      <span
+        className={cx(
+          "mb-3 text-sm leading-tight",
+          item.reached ? "text-foreground" : "text-foreground-muted",
+        )}
+      >
+        {item.name}
+      </span>
+      <span className="sr-only">{item.goal}</span>
+    </>
+  );
+}
+
+/** What a milestone has to say for itself, under the ring: the rule it asks for
+    in a few words when the name does not already carry it, and then the one
+    thing the reader wants next — the day it was reached, or how far along it
+    is. Shared by the upright card and the ladder, which differ only in how they
+    are walked. */
+function Face({ item }: { item: Milestone }) {
+  return (
+    <>
+      {item.rule === undefined ? null : (
+        <div
+          className={cx(
+            "mt-1.5 text-xs leading-snug",
+            item.reached ? "text-foreground-faint" : "text-foreground-subtle",
+          )}
+        >
+          {item.rule}
+        </div>
+      )}
+      {item.detail === "" ? null : (
+        <div
+          className={cx(
+            "mt-1.5 text-xs leading-snug tabular-nums",
+            item.reached ? "text-foreground-faint" : "text-foreground-subtle",
+          )}
+        >
+          {item.detail}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** How much air a card keeps above the ring and below the words.
+
+    A share of the card's own width rather than a number, because the padding is
+    the only thing that can grow when the card does: the ring and the words are
+    the same size in every column, so a wide card is not a roomier one — it is
+    the same small cluster in a bigger box, and the box looks emptier the wider
+    it gets. Spending the width on the padding keeps the card's proportions
+    instead of its size, and the card grows taller to hold it.
+
+    The constant is half of what the name, the ring and the two lines under it
+    come to, so taking it off a little more than half the width leaves about the
+    air a square card would have had — and the surplus is the slight portrait
+    lean these cards wear at every size. The floor is the 1.5rem the narrowest
+    column wants: under that the padding stops following the width and stands
+    still. */
+const CARD_AIR = "py-[max(1.5rem,55cqw_-_3.75rem)]";
+
+/** One milestone. Its width comes from the column it is laid into, and its
+    height is whatever the ring, the words and `CARD_AIR` come to — so the card
+    keeps its proportions as the column widens rather than a hole between the
+    ring and the words.
+
+    The `@container` is the card's column, so `cqw` above reads as the card's
+    width; a container cannot query the size of itself, which is why the card
+    sits one element inside.
+
+    Nothing is centred down the card: the name stands on the top padding, the
+    ring hangs under it and the words stand on the floor. The names are all one
+    line — the longest is the one that fits the narrowest column — so the rings
+    of a row line up across it, and the last line of each card meets the bottom
+    edge at the same height whatever it has to say up there. */
+function MilestoneTile({ item }: { item: Milestone }) {
+  return (
+    <div className="@container flex w-full">
+      <div
+        className={cx(
+          "flex w-full flex-col items-center rounded-field bg-muted px-3 text-center",
+          CARD_AIR,
+        )}
+      >
+        <Name item={item} />
+        <Ring item={item} />
+        {/* The name stands on the top padding, the ring hangs under it and the
+            words stand on the floor, so the last line of every card meets the
+            bottom edge at the same height whatever the card has to say. */}
+        <div className="mt-auto flex w-full flex-col items-center">
+          <Face item={item} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** A group whose milestones are rungs of one ladder — 3, 7, 14 … days; a
+    quarter of an hour, an hour, three … — walked one at a time rather than laid
+    out side by side. It opens on the rung still to be reached, since finishing
+    one is what brings the next forward, and rests on the last rung once every
+    one of them is underfoot. The arrows are there for looking back up at what
+    has been climbed.
+
+    It is the same card as a lone milestone — same width, same shape — with the
+    arrows tucked inside its own edges rather than standing beside it, so a
+    ladder and a single milestone sit in one run without a seam between them. */
+function MilestoneLadder({ group }: { group: MilestoneGroup }) {
+  // Null until an arrow is used, so the rung it opens on is worked out afresh
+  // from the log — the one that is actually next, not the one after whatever
+  // was last looked at.
+  const [picked, setPicked] = useState<number | null>(null);
+  const next = group.items.findIndex((item) => !item.reached);
+  const at = picked ?? (next === -1 ? group.items.length - 1 : next);
+  const last = group.items.length - 1;
+
+  const arrow = (side: "left" | "right") => (
+    <button
+      type="button"
+      onClick={() => setPicked(side === "left" ? at - 1 : at + 1)}
+      disabled={side === "left" ? at === 0 : at === last}
+      aria-label={side === "left" ? "Previous milestone" : "Next milestone"}
+      // Held at the ends of the ladder as an invisible bar rather than
+      // dropped, so the rung does not shift sideways as it is reached.
+      className="flex w-6 shrink-0 items-center justify-center rounded-field text-foreground-faint transition-colors hover:bg-hover-bg-strong hover:text-foreground disabled:pointer-events-none disabled:opacity-0"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="h-4 w-4"
+        aria-hidden="true"
+      >
+        <path d={side === "left" ? "m15 18-6-6 6-6" : "m9 18 6-6-6-6"} />
+      </svg>
+    </button>
+  );
+
+  return (
+    <div className="@container flex w-full">
+      <div
+        className={cx(
+          "flex w-full items-stretch rounded-field bg-muted px-1",
+          CARD_AIR,
+        )}
+      >
+        {arrow("left")}
+        <div className="flex min-w-0 flex-1 flex-col items-center text-center">
+          <Name item={group.items[at]} />
+          <Ring item={group.items[at]} />
+          {/* Like a lone milestone, the name stands on the top padding, the
+              ring hangs below it and the words stand on the floor, with the
+              dots printed under them. */}
+          <div className="mt-auto flex w-full flex-col items-center">
+            <Face item={group.items[at]} />
+            {/* Where on the ladder this rung sits: one dot a rung, green for
+                the ones already underfoot. Pinned to the foot of the card,
+                which is where a row of dots belongs — and it keeps them on one
+                line across every ladder, whatever the rung above them has to
+                say. */}
+            <div className="flex items-center gap-1 pt-3">
+              {group.items.map((rung, index) => (
+                <span
+                  key={rung.id}
+                  aria-hidden="true"
+                  className={cx(
+                    "h-1 w-1 rounded-full",
+                    index === at
+                      ? "bg-foreground"
+                      : rung.reached
+                        ? "bg-useful-mark"
+                        : "bg-border-strong",
+                  )}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+        {arrow("right")}
       </div>
     </div>
   );
@@ -660,6 +920,16 @@ export default function Drawer({
     return { week, weekBefore, month, monthBefore };
   }, [buckets, now]);
 
+  /** The milestones, grouped as they are shown, and the tally that heads them:
+      how many are behind the reader out of how many there are. */
+  const board = useMemo(
+    () =>
+      now === null || buckets === null ? [] : milestones(spans, buckets, now),
+    [spans, buckets, now],
+  );
+  const boardItems = board.flatMap((group) => group.items);
+  const boardEarned = boardItems.filter((item) => item.reached).length;
+
   /** Settles the end of the stretch a row stands for. The typed time is read on
       the day the row belongs to — that day's midnight is the anchor — so the
       earlier half of a session that ran over midnight can be ended before
@@ -804,9 +1074,9 @@ export default function Drawer({
             />
           </div>
 
-          <header className="mx-auto flex w-full max-w-[1600px] items-start justify-between gap-6 px-5 pb-3 pt-2 sm:px-6 lg:px-8">
+          <header className="mx-auto flex w-full max-w-[1600px] items-start justify-between gap-6 px-5 pb-2 pt-1 sm:px-6 lg:px-8">
             <div>
-              <h2 className="font-display text-lg font-medium leading-tight tracking-tight text-foreground">
+              <h2 className="font-sans text-lg font-medium leading-tight tracking-tight text-foreground">
                 Your log
               </h2>
             </div>
@@ -1167,6 +1437,14 @@ export default function Drawer({
                       </ul>
                     </div>
                   )}
+                  {/* The floor under the whole list, said once the way the
+                      board says what makes a day perfect: a stretch shorter
+                      than the minimum is dropped rather than drawn, and a
+                      reader who switched for two minutes and then found no row
+                      for it deserves to know why. */}
+                  <p className="mt-5 text-sm leading-snug text-foreground-muted">
+                    Stretches under {duration(MIN_USEFUL_MS)} are dropped.
+                  </p>
                 </Card>
 
                 <div className="flex flex-col gap-5 xl:col-span-5">
@@ -1308,6 +1586,78 @@ export default function Drawer({
                     <Heat grid={figures?.heat ?? []} />
                   </div>
                 </Card>
+
+                <Card
+                  className="xl:col-span-12"
+                  title="Milestones"
+                  hint={`${boardEarned} of ${boardItems.length}`}
+                >
+                  {/* One flat run of cards with no headings between them: a
+                      ladder is the same card as a lone milestone, walked with
+                      the arrows instead of standing still. Same width, same
+                      shape, so the board reads as one set.
+
+                      As many cards to a row as the width allows, rather than a
+                      fixed count: every card then fills its column instead of
+                      sitting in the middle of a wide one with air around it,
+                      and the last row is simply the one that ran out of cards
+                      to fill it. Two to a row on a phone, where a solitary
+                      170px column would be all the width there is.
+
+                      No `items-start`: the cards are as tall as their own
+                      contents, and a ladder carries one line fewer than a lone
+                      milestone does, so the row is stretched to its tallest
+                      card instead and the short one spends the difference as a
+                      few pixels of air. */}
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-[repeat(auto-fill,minmax(170px,1fr))]">
+                    {board.map((group) =>
+                      group.ladder ? (
+                        <MilestoneLadder key={group.group} group={group} />
+                      ) : (
+                        group.items.map((item) => (
+                          <MilestoneTile key={item.id} item={item} />
+                        ))
+                      ),
+                    )}
+                  </div>
+                  {/* What makes a day perfect, said once for the ladder that
+                      counts them. Worn on every rung it would be the same line
+                      twelve times over, and the count — `720 perfect days` —
+                      never says on its own what one of those days had to be. */}
+                  <p className="mt-5 text-sm leading-snug text-foreground-muted">
+                    {PERFECT_DAY_RULE}
+                  </p>
+                </Card>
+              </div>
+
+              {/* The log itself, out. One row a stretch, which is all the log
+                  actually holds — every figure in this sheet is derived from
+                  those rows, so this is the whole history rather than a summary
+                  of it. Disabled on an empty log, where there is no file to
+                  write. */}
+              <div className="mt-5">
+                <button
+                  type="button"
+                  disabled={spans.length === 0}
+                  onClick={() => downloadCsv(spans)}
+                  className="inline-flex h-9 items-center gap-2 rounded-field border border-border px-3 text-sm text-foreground-muted transition-colors hover:bg-hover-bg hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={1.5}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-4 w-4"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 4v11" />
+                    <path d="m7.5 10.5 4.5 4.5 4.5-4.5" />
+                    <path d="M5 19.5h14" />
+                  </svg>
+                  Export all data
+                </button>
               </div>
             </div>
           </div>
