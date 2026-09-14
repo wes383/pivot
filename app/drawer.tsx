@@ -1451,9 +1451,12 @@ export default function Drawer({
                       board says what makes a day perfect: a stretch shorter
                       than the minimum is dropped rather than drawn, and a
                       reader who switched for two minutes and then found no row
-                      for it deserves to know why. */}
+                      for it deserves to know why. The ceiling gets one line
+                      too: a useful stretch left running is credited at most
+                      the cap, so nobody loses a night to a forgotten switch. */}
                   <p className="mt-5 text-sm leading-snug text-foreground-muted">
-                    Stretches under {duration(MIN_USEFUL_MS)} are dropped.
+                    Stretches under 5 minutes are dropped; a
+                    stretch still running is capped at 8 hours.
                   </p>
                 </Card>
 
