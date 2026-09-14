@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import Link from "next/link";
 import type { Period, Span } from "./spans";
 import {
   PERFECT_DAY_RULE,
@@ -1653,7 +1654,7 @@ export default function Drawer({
                   those rows, so this is the whole history rather than a summary
                   of it. Disabled on an empty log, where there is no file to
                   write. */}
-              <div className="mt-5">
+              <div className="mt-5 flex items-center justify-between gap-4">
                 <button
                   type="button"
                   disabled={spans.length === 0}
@@ -1676,6 +1677,13 @@ export default function Drawer({
                   </svg>
                   Export all data
                 </button>
+
+                <Link
+                  href="/privacy"
+                  className="text-xs text-foreground-faint transition-colors hover:text-foreground-muted"
+                >
+                  Privacy
+                </Link>
               </div>
             </div>
           </div>
