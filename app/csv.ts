@@ -7,14 +7,20 @@ import type { Span } from "./spans";
     log says ran nine hours is written as nine hours. */
 const HEADER = "start,end,minutes";
 
-/** `2026-09-14 09:03:20`, in the browser's own zone. Deliberately not ISO 8601:
-    there is no `T`, no offset and no `Z`, because the file is meant to be opened
-    in a spreadsheet rather than fed back into a program, and the log was kept in
-    local time. Seconds are kept so the two stamps and the minute count beside
-    them can never contradict one another. */
+/** `2026-09-14 2:03:20 pm`, in the browser's own zone. Deliberately not ISO
+    8601: there is no `T`, no offset and no `Z`, because the file is meant to be
+    opened in a spreadsheet rather than fed back into a program, and the log was
+    kept in local time. The time reads on a 12-hour face like every other time
+    the app shows; the one thing the export keeps that the sheet never needs is
+    the seconds, so that the two stamps and the minute count beside them can
+    never contradict one another. Built here rather than taken from `clock12`,
+    which stops at the minute. */
 function stamp(ms: number): string {
   const at = new Date(ms);
-  return `${at.getFullYear()}-${two(at.getMonth() + 1)}-${two(at.getDate())} ${two(at.getHours())}:${two(at.getMinutes())}:${two(at.getSeconds())}`;
+  const hour = at.getHours();
+  const face = hour % 12 === 0 ? 12 : hour % 12;
+  const half = hour < 12 ? "am" : "pm";
+  return `${at.getFullYear()}-${two(at.getMonth() + 1)}-${two(at.getDate())} ${face}:${two(at.getMinutes())}:${two(at.getSeconds())} ${half}`;
 }
 
 /** How long a stretch lasted, in minutes to a tenth. A whole number would read

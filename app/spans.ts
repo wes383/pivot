@@ -58,9 +58,10 @@ export function shiftDays(ms: number, days: number): number {
   ).getTime();
 }
 
-/** `13:05` — 24-hour and locale-independent, so every reading of the log looks
-    the same wherever it is opened. Also the exact value an `<input
-    type="time">` wants. */
+/** `13:05` — 24-hour and locale-independent. Nothing is *shown* this way any
+    more; it survives because it is the exact value an `<input type="time">`
+    reads and writes, however the browser chooses to paint that field. Every
+    reading the reader gets goes through `clock12` instead. */
 export function clock(ms: number): string {
   const d = new Date(ms);
   const hh = String(d.getHours()).padStart(2, "0");
@@ -68,12 +69,41 @@ export function clock(ms: number): string {
   return `${hh}:${mm}`;
 }
 
+/** An hour on a 12-hour face, and which half of the day it belongs to. Midnight
+    and noon both come back as `12`, which is what a dial shows. */
+function twelve(hour: number): [number, "am" | "pm"] {
+  const h = hour % 24;
+  return [h % 12 === 0 ? 12 : h % 12, h < 12 ? "am" : "pm"];
+}
+
+/** `1:05 pm` — a moment as the reader reads it, and the one place the log is
+    turned into a clock face, so the page, the drawer and the export can never
+    disagree about what time it is. Spelled out rather than handed to
+    `toLocaleTimeString`, which would re-decide the wording with every locale
+    and could hand back 24-hour on the machine this is opened on. */
+export function clock12(ms: number): string {
+  const d = new Date(ms);
+  const [face, half] = twelve(d.getHours());
+  // The hour rides with a leading zero (`02:55 pm`): the moment stands beside
+  // tabular columns and read times must line up under one another.
+  return `${String(face).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")} ${half}`;
+}
+
+/** `9 am` — an hour of the local day standing on its own, for the axes and the
+    rules that name an hour rather than a moment. */
+export function hourName(hour: number): string {
+  const [face, half] = twelve(hour);
+  return `${face} ${half}`;
+}
+
 /** A time as the *end* of a stretch reads on a day it has been cut down to:
-    `23:40`, or `24:00` when the stretch runs on past the day's last minute.
-    `clock` alone would wrap that to `00:00`, which reads as the start of the
-    next day rather than the end of this one. */
-export function endClock(ms: number, dayEnd: number): string {
-  return ms >= dayEnd ? "24:00" : clock(ms);
+    `11:40 pm`, or `midnight` when the stretch runs on past the day's last
+    minute. `clock12` alone would wrap that to `12:00 am`, which reads as the
+    start of the next day rather than the end of this one — the trap `24:00` was
+    there to avoid. A 12-hour dial has no number of its own for the day's end,
+    so this one has to be named rather than written. */
+export function endClock12(ms: number, dayEnd: number): string {
+  return ms >= dayEnd ? "midnight" : clock12(ms);
 }
 
 /** `2026-09-13` — the local calendar day, and the exact value an `<input
@@ -124,6 +154,67 @@ export function shortMonth(ms: number): string {
   return MONTHS[new Date(ms).getMonth()];
 }
 
+/** `8 – 14 Sep 2026` — the run of days a chart bar stands for, as a range.
+    `until` is exclusive: a week bar ending at next Monday reads through the
+    Sunday before it. Months fold inside one month and one year, and both
+    years are kept when the range crosses one: `29 Dec 2025 – 4 Jan 2026`. */
+export function dateRange(from: number, until: number): string {
+  const a = new Date(from);
+  const end = new Date(until);
+  // The last day covered, walked through the calendar rather than back a
+  // fixed count of millis, so a daylight-saving edge still lands on a date.
+  const b = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 1);
+
+  if (a.getFullYear() !== b.getFullYear()) {
+    return `${shortDate(from)} – ${shortDate(b.getTime())}`;
+  }
+  // A single day reads plainly: a running week seen on its Monday covers
+  // today and nothing more, and `8 – 8 Sep` would stumble over it.
+  if (a.getMonth() === b.getMonth() && a.getDate() === b.getDate()) {
+    return shortDate(from);
+  }
+  if (a.getMonth() === b.getMonth()) {
+    return `${a.getDate()} – ${b.getDate()} ${MONTHS[b.getMonth()]} ${b.getFullYear()}`;
+  }
+  return `${a.getDate()} ${MONTHS[a.getMonth()]} – ${b.getDate()} ${MONTHS[b.getMonth()]} ${b.getFullYear()}`;
+}
+
+/** `W37` — the axis label of a week bar. Weeks here start on Monday and a
+    week bar carries only its first day, so a calendar date under the point
+    would read as a day rather than as the week it stands for; the ISO week
+    number names the whole run instead. Weeks beginning in late December can
+    carry the next year's count — that is what makes W1 the week holding the
+    year's first Thursday, and it is the ISO rule, not a slip. */
+export function weekName(ms: number): string {
+  // The ISO count hangs each week's number on its Thursday, so walk to that:
+  // the Thursday of this week, then the year's first Thursday, whose week is
+  // W1. The gap is taken over UTC — a plain millisecond difference across a
+  // daylight-saving change would land a day out.
+  const d = new Date(startOfDay(ms));
+  const back = (d.getDay() + 6) % 7;
+  const thursday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - back + 3);
+  const jan4 = new Date(thursday.getFullYear(), 0, 4);
+  const firstThursday = new Date(
+    jan4.getFullYear(),
+    0,
+    4 - ((jan4.getDay() + 6) % 7) + 3,
+  );
+  const weeks = Math.round(
+    (Date.UTC(
+      thursday.getFullYear(),
+      thursday.getMonth(),
+      thursday.getDate(),
+    ) -
+      Date.UTC(
+        firstThursday.getFullYear(),
+        firstThursday.getMonth(),
+        firstThursday.getDate(),
+      )) /
+      (7 * 86_400_000),
+  );
+  return `W${1 + weeks}`;
+}
+
 /** The end a stretch really counts up to. A closed stretch counts to exactly the
     end it carries — the cap was already applied when that end was written, and
     an end set by hand is honoured rather than silently trimmed. A running
@@ -149,12 +240,12 @@ export function overlap(
 /** Whether a stretch is work *as far as one day is concerned*.
 
     A stretch is cut at every midnight it crosses, and the five-minute floor is
-    then applied per slice rather than once to the whole stretch: 23:00 → 00:03
-    is a session worth keeping, but the three minutes it left on the second day
-    are on their own too short to be work, so that day does not count them —
-    and stays grey through them. Without this the day's list and its total would
-    disagree: the row would show three minutes that the total had already
-    refused.
+    then applied per slice rather than once to the whole stretch: 11:00 pm →
+    12:03 am is a session worth keeping, but the three minutes it left on the
+    second day are on their own too short to be work, so that day does not count
+    them — and stays grey through them. Without this the day's list and its
+    total would disagree: the row would show three minutes that the total had
+    already refused.
 
     The one exception is a slice that is still being written — the open end of a
     stretch that has not been switched off yet. It is credited as it goes and

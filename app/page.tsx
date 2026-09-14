@@ -6,11 +6,12 @@ import {
   MAX_USEFUL_MS,
   MIN_USEFUL_MS,
   cappedEnd,
-  clock,
+  clock12,
   countsOn,
   dayBounds,
   duration,
-  endClock,
+  endClock12,
+  hourName,
   type Span,
 } from "./spans";
 
@@ -158,8 +159,8 @@ function DayTimeline({ spans, onOpen }: { spans: Span[]; onOpen: () => void }) {
   let dayLength = 0;
 
   // Held out here as well as inside the block below, because the tooltip needs
-  // it too: a stretch cut off at midnight has to read as running to 24:00 rather
-  // than wrapping round to 00:00 on the day after the one being shown.
+  // it too: a stretch cut off at midnight has to read as running to midnight
+  // rather than wrapping round to 12:00 am on the day after the one being shown.
   const dayEnd = now === null ? 0 : dayBounds(now)[1];
 
   // Nothing is measured until after mount, so the server and the first client
@@ -296,7 +297,9 @@ function DayTimeline({ spans, onOpen }: { spans: Span[]; onOpen: () => void }) {
           </div>
 
           {/* Ruler: the hours named rather than ticked. It rides above the rail
-              so the greens stay unbroken, and fades in while hovered. */}
+              so the greens stay unbroken, and fades in while hovered. The hours
+              are read off the 12-hour face, so the mark at either end of the
+              day says `12 am` and the one at its middle `12 pm`. */}
           <div
             aria-hidden="true"
             className="pointer-events-none absolute inset-x-0 bottom-full h-4 opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100 motion-reduce:transition-none"
@@ -305,11 +308,11 @@ function DayTimeline({ spans, onOpen }: { spans: Span[]; onOpen: () => void }) {
               <span
                 key={hour}
                 style={{ left: `${(hour / 24) * 100}%` }}
-                className={`absolute bottom-1 -translate-x-1/2 text-[10px] leading-none tracking-normal text-foreground-subtle sm:text-[11px] ${
+                className={`absolute bottom-1 -translate-x-1/2 whitespace-nowrap text-[10px] leading-none tracking-normal text-foreground-subtle sm:text-[11px] ${
                   hour % 6 === 0 ? "" : "hidden sm:block"
                 }`}
               >
-                {hour}
+                {hourName(hour)}
               </span>
             ))}
           </div>
@@ -326,8 +329,8 @@ function DayTimeline({ spans, onOpen }: { spans: Span[]; onOpen: () => void }) {
               }}
               className="pointer-events-none absolute bottom-full mb-6 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg border border-border bg-surface px-3 py-2 text-center text-sm font-normal leading-snug tracking-normal text-foreground shadow-md"
             >
-              I was doing something useful from {clock(hovered.start)} to{" "}
-              {endClock(hovered.end, dayEnd)}.
+              I was doing something useful from {clock12(hovered.start)} to{" "}
+              {endClock12(hovered.end, dayEnd)}.
             </span>
           ) : null}
 

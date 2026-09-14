@@ -16,12 +16,13 @@
 import type { DayBucket, Span } from "./spans";
 import {
   cappedEnd,
-  clock,
+  clock12,
   dayBounds,
   dayRuns,
   daysAscending,
   daysStillOnAt,
   duration,
+  hourName,
   shortDate,
   startOfDay,
   startOfWeek,
@@ -397,8 +398,9 @@ export function milestones(
   /** The clock the switch was last kept on, and the distance that picks it.
       Measured around the dial rather than across it — three in the morning is
       late, not early — so the hour nearest midnight wins, whichever side of it
-      that hour sits on. Only the clock is printed: a stretch stopping at 23:50
-      has not half-crossed anything, so the distance earns no ring of its own. */
+      that hour sits on. Only the clock is printed: a stretch stopping at
+      11:50 pm has not half-crossed anything, so the distance earns no ring of
+      its own. */
   let nearestMidnight = Infinity;
   let latestClock = "";
 
@@ -409,7 +411,7 @@ export function milestones(
     const distance = Math.min(across, to - from - across);
     if (distance < nearestMidnight) {
       nearestMidnight = distance;
-      latestClock = clock(end);
+      latestClock = clock12(end);
     }
   }
 
@@ -439,8 +441,8 @@ export function milestones(
       id: "early-bird",
       group: START,
       name: "Early bird",
-      goal: "Switch onto useful before 7 am.",
-      rule: `Useful before ${EARLY_HOUR} am`,
+      goal: `Switch onto useful before ${hourName(EARLY_HOUR)}.`,
+      rule: `Useful before ${hourName(EARLY_HOUR)}`,
       detail: dateOr(early, ""),
       progress: early === null ? 0 : 1,
       reached: early !== null,
@@ -449,8 +451,8 @@ export function milestones(
       id: "night-owl",
       group: START,
       name: "Night owl",
-      goal: "Still be useful after 11 pm.",
-      rule: `Useful after ${LATE_HOUR - 12} pm`,
+      goal: `Still be useful after ${hourName(LATE_HOUR)}.`,
+      rule: `Useful after ${hourName(LATE_HOUR)}`,
       detail: dateOr(late, ""),
       progress: late === null ? 0 : 1,
       reached: late !== null,
@@ -628,7 +630,7 @@ export function milestones(
     // Nothing is ever half-crossed: a stretch either ran over the line or it
     // did not, so the ring stays empty until one does. How near the clock came
     // to midnight is not a step towards it, and drawing it as one said the
-    // wrong thing about an evening that ended at 23:50.
+    // wrong thing about an evening that ended at 11:50 pm.
     progress: midnight !== null ? 1 : 0,
     reached: midnight !== null,
   };

@@ -20,13 +20,16 @@ import {
   bucketByDay,
   cappedEnd,
   clock,
+  clock12,
   countsOn,
+  dateRange,
   dateValue,
   dayBounds,
   daysBetween,
   duration,
-  endClock,
+  endClock12,
   heatmap,
+  hourName,
   hourTotals,
   monthBars,
   peakHour,
@@ -38,6 +41,7 @@ import {
   startOfWeek,
   totalOver,
   weekBars,
+  weekName,
 } from "./spans";
 
 type Props = {
@@ -590,11 +594,16 @@ function Line({
         ))}
       </div>
       {labels ? (
-        <div className="mt-2 flex gap-1">
+        // One label per point, at the point's own share of the box: the axis
+        // answers to the same geometry the line does, so a label sits under
+        // its point however wide the card runs — even columns would drift
+        // apart from the points as the box widened.
+        <div className="relative mt-2 h-3">
           {labels.map((label, index) => (
             <span
               key={index}
-              className="flex-1 text-center text-[10px] leading-none text-foreground-faint"
+              style={{ left: `${points[index].x}%` }}
+              className="absolute top-0 -translate-x-1/2 whitespace-nowrap text-center text-[10px] leading-none text-foreground-faint"
             >
               {label}
             </span>
@@ -611,6 +620,11 @@ function Line({
     grid — the only scale that keeps a history a few days long from reading as
     one lonely square. */
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/** The hours named under the grid: the same every-sixth-one marks the rail
+    carries, read off the 12-hour face. Both ends of the day are the same mark,
+    which is what midnight looks like on a dial. */
+const AXIS_HOURS = [0, 6, 12, 18, 24];
 
 /** Five steps rather than a continuous ramp: a shade that answers to a fraction
     reads as noise, and there is nothing in it that a second shade would say. */
@@ -645,7 +659,7 @@ function Heat({ grid }: { grid: number[][] }) {
             </span>
             <div className="flex flex-1 gap-[3px]">
               {row.map((value, hour) => {
-                const label = `${WEEKDAYS[day]} ${pad(hour)}:00 · ${duration(value)}`;
+                const label = `${WEEKDAYS[day]} ${hourName(hour)} · ${duration(value)}`;
                 return (
                   <span
                     key={hour}
@@ -668,12 +682,10 @@ function Heat({ grid }: { grid: number[][] }) {
       </div>
       <div className="mt-1.5 flex gap-[3px]">
         <span className="w-7 shrink-0" />
-        <div className="flex flex-1 justify-between text-[10px] leading-none text-foreground-faint">
-          <span>00</span>
-          <span>06</span>
-          <span>12</span>
-          <span>18</span>
-          <span>24</span>
+        <div className="flex flex-1 justify-between whitespace-nowrap text-[10px] leading-none text-foreground-faint">
+          {AXIS_HOURS.map((hour) => (
+            <span key={hour}>{hourName(hour)}</span>
+          ))}
         </div>
       </div>
       {tip === null ? null : <BarTip text={tip.text} at={tip.at} />}
@@ -691,11 +703,6 @@ function delta(current: number, previous: number): string {
       ? ` (${sign}${Math.round((Math.abs(diff) / previous) * 100)}%)`
       : "";
   return `${sign}${duration(Math.abs(diff))}${percent}`;
-}
-
-/** `09` — an hour of the local day, written the way a clock writes it. */
-function pad(hour: number): string {
-  return String(hour).padStart(2, "0");
 }
 
 /** One row of the day's list: a stretch already cut down to that day, together
@@ -843,8 +850,9 @@ export default function Drawer({
 
   /** The stretches that count towards that day, in order, each already cut down
       to the day it is listed under. A session that ran over midnight is a row on
-      both days — `23:00 → 24:00` on the first, `00:00 → 02:00` on the second —
-      so the rows of a day add up to exactly the total in the card's own header.
+      both days — `11:00 pm → midnight` on the first, `12:00 am → 2:00 am` on
+      the second — so the rows of a day add up to exactly the total in the
+      card's own header.
       `index` is the stretch's place in the log, which is what an edit or a
       deletion travels by. */
   const rows = useMemo(() => {
@@ -933,11 +941,12 @@ export default function Drawer({
   /** Settles the end of the stretch a row stands for. The typed time is read on
       the day the row belongs to — that day's midnight is the anchor — so the
       earlier half of a session that ran over midnight can be ended before
-      midnight: `23:00 → 02:00`, typed as `23:45` on the first day, becomes
-      `23:00 → 23:45`, while the tail goes on holding `00:00 → 02:00` on the
-      second. That is why this edit splits the record instead of moving its end:
-      one stretch spread over two days has only the one end to move, and the two
-      halves have to end up as two stretches to each keep a time of their own. */
+      midnight: a stretch running `11:00 pm → 2:00 am`, ended at `11:45 pm` on
+      the first day, becomes `11:00 pm → 11:45 pm` there, while the tail goes on
+      holding `12:00 am → 2:00 am` on the second. That is why this edit splits
+      the record instead of moving its end: one stretch spread over two days has
+      only the one end to move, and the two halves have to end up as two
+      stretches to each keep a time of their own. */
   const onEditEnd = (row: Row, value: string) => {
     if (now === null) return;
     const { span, index } = row;
@@ -1248,7 +1257,7 @@ export default function Drawer({
                                       : "text-foreground",
                                   )}
                                 >
-                                  {clock(start)}
+                                  {clock12(start)}
                                 </span>
                                 <Arrow fragment={fragment} />
 
@@ -1275,13 +1284,13 @@ export default function Drawer({
                                   // nothing more. Switching back is what closes
                                   // it — then there is an end to correct.
                                   <span className="inline-flex h-9 w-[7.5rem] shrink-0 items-center justify-center rounded-field border border-dashed border-border-strong text-center tabular-nums text-foreground-muted">
-                                    {endClock(end, dayEnd)}
+                                    {endClock12(end, dayEnd)}
                                   </span>
                                 ) : (
                                   // The end, as a field on this row's own day.
                                   // On the day a stretch ran on into, the end
                                   // it really has is not this day's to hold — a
-                                  // time field cannot spell 24:00 — so the field
+                                  // time field cannot spell midnight — so the field
                                   // is left empty and the day's edge is laid
                                   // over it for as long as the pointer is only
                                   // passing through.
@@ -1331,7 +1340,7 @@ export default function Drawer({
                                       onChange={(event) =>
                                         onEditEnd(row, event.target.value)
                                       }
-                                      aria-label={`End of the stretch starting ${clock(
+                                      aria-label={`End of the stretch starting ${clock12(
                                         span.start,
                                       )} on ${shortDate(dayStart)}`}
                                       className={cx(
@@ -1356,7 +1365,7 @@ export default function Drawer({
                                         aria-hidden="true"
                                         className="pointer-events-none absolute inset-px flex items-center justify-center rounded-field bg-surface tabular-nums text-foreground-muted transition-opacity duration-150 peer-focus:opacity-0 motion-reduce:transition-none"
                                       >
-                                        {endClock(end, dayEnd)}
+                                        {endClock12(end, dayEnd)}
                                       </span>
                                     ) : null}
                                   </span>
@@ -1394,7 +1403,7 @@ export default function Drawer({
                                   <button
                                     type="button"
                                     onClick={() => setConfirming(index)}
-                                    aria-label={`Delete the stretch starting ${clock(
+                                    aria-label={`Delete the stretch starting ${clock12(
                                       span.start,
                                     )}`}
                                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-chip text-foreground-faint transition-colors hover:bg-hover-bg-strong hover:text-foreground"
@@ -1557,12 +1566,21 @@ export default function Drawer({
                     <Line
                       values={chartBars.map((bar) => bar.useful)}
                       titles={chartBars.map(
-                        (bar) =>
-                          `${shortDate(bar.from)} · ${duration(bar.useful)}`,
+                        (bar, index) =>
+                          // The days the bar stands for, not just where it
+                          // starts — and the one still running reads through
+                          // today, since its tail has not happened yet.
+                          `${dateRange(
+                            bar.from,
+                            index === chartBars.length - 1 &&
+                              figures !== null
+                              ? shiftDays(figures.today, 1)
+                              : bar.to,
+                          )} · ${duration(bar.useful)}`,
                       )}
                       labels={chartBars.map((bar) =>
                         chart === "week"
-                          ? `${new Date(bar.from).getMonth() + 1}/${new Date(bar.from).getDate()}`
+                          ? weekName(bar.from)
                           : shortMonth(bar.from),
                       )}
                       marked={chartBars.length - 1}
@@ -1578,9 +1596,9 @@ export default function Drawer({
                   <p className="text-sm leading-snug text-foreground-muted">
                     {peak === null
                       ? "Not enough logged yet to see a shape to the day."
-                      : `Your strongest hour is ${pad(peak)}:00–${pad(
+                      : `Your strongest hour is ${hourName(peak)}–${hourName(
                           peak + 1,
-                        )}:00, holding ${duration(hours[peak])} of useful time.`}
+                        )}, holding ${duration(hours[peak])} of useful time.`}
                   </p>
                   <div className="mt-5">
                     <Heat grid={figures?.heat ?? []} />
