@@ -1,26 +1,122 @@
 @import "tailwindcss";
 
+/* Pivot — design tokens adapted from Orkest UI
+   Warm minimal aesthetic · quiet surfaces, one near-black accent. */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Surfaces */
+  --background: #fcfbfa;
+  --surface: #ffffff;
+
+  /* Foreground
+     The foreground scale is the only tool used to express the two states. */
+  --foreground: #25242a;
+  --foreground-muted: #6d6770;
+  --foreground-subtle: #9f99a3;
+
+  /* Borders & focus */
+  --border: rgba(0, 0, 0, 0.08);
+  --ring: rgba(0, 0, 0, 0.22);
+
+  /* Accent — text selection only; the switch itself uses no chrome */
+  --accent: #25242a;
+  --accent-hover: #000000;
+  --accent-fg: #ffffff;
+
+  /* Timeline marks — the one place the page spends colour: a soft green for
+     the stretches spent usefully, a neutral grey for the rest of the day,
+     and a track light enough to only whisper where the day ends. */
+  --track: rgba(0, 0, 0, 0.035);
+  --idle-mark: #dcdadd;
+  --useful-mark: #5fd383;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
+/* Follows the OS appearance so the page never flashes the wrong surface. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #101010;
+    --surface: #181818;
+
+    --foreground: #f5f5f5;
+    --foreground-muted: #a3a3a3;
+    --foreground-subtle: #737373;
+
+    --border: rgba(255, 255, 255, 0.1);
+    --ring: rgba(255, 255, 255, 0.3);
+
+    --accent: #f5f5f5;
+    --accent-hover: #ffffff;
+    --accent-fg: #111111;
+
+    --track: rgba(255, 255, 255, 0.06);
+    --idle-mark: #3b393e;
+    --useful-mark: #4cb872;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* `inline` keeps utilities pointing straight at the vars above, so the
+   dark-mode block can retheme the page without a second set of classes. */
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-foreground-subtle: var(--foreground-subtle);
+
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+
+  --color-track: var(--track);
+  --color-idle-mark: var(--idle-mark);
+  --color-useful-mark: var(--useful-mark);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-display: var(--font-manrope), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  html {
+    background: var(--background);
+    -webkit-text-size-adjust: 100%;
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    html {
+      color-scheme: dark;
+    }
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    text-rendering: geometricPrecision;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: background-color 0.3s var(--ease-out),
+      color 0.3s var(--ease-out);
+  }
+
+  ::selection {
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
 }
