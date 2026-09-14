@@ -1,6 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Drawer from "./drawer";
+import {
+  MAX_USEFUL_MS,
+  MIN_USEFUL_MS,
+  cappedEnd,
+  clock,
+  countsOn,
+  dayBounds,
+  duration,
+  endClock,
+  type Span,
+} from "./spans";
 
 /** The site has exactly two states. Nothing else. */
 type State = "idle" | "useful";
@@ -44,33 +56,10 @@ const SNAP_MAX = 72;
 /** Below this the gesture counts as a tap, not a slide. */
 const TAP_SLOP = 6;
 
-/** One stretch of the day spent in the "useful" state, in epoch ms. `end` is
-    null while the stretch is still running: away time counts as work, so a run
-    has no knowable end until the switch flips back — and so there is nothing
-    for a heartbeat to keep pushing. */
-type Span = { start: number; end: number | null };
-
 /** Every session ever logged, oldest first. The log is never trimmed by date —
     it keeps the whole history, and it is up to whoever reads it to pick the
     stretch they want. */
 const LOG_KEY = "pivot.log";
-/** A dip into "useful" shorter than this is not treated as work at all: the
-    stretch is dropped and stays grey, as if the break had simply carried on. */
-const MIN_USEFUL_MS = 300_000;
-/** Nobody works a single unbroken stretch for longer than this, so a stretch is
-    never credited past it. Forget to flip the switch back and the session stops
-    counting at eight hours instead of quietly swallowing the whole night. */
-const MAX_USEFUL_MS = 8 * 3_600_000;
-
-/** Local midnight → the next one, as epoch ms. Built from the calendar rather
-    than by adding 24h, so a daylight-saving day still measures as one day. */
-function dayBounds(now: number): [number, number] {
-  const d = new Date(now);
-  const y = d.getFullYear();
-  const m = d.getMonth();
-  const date = d.getDate();
-  return [new Date(y, m, date).getTime(), new Date(y, m, date + 1).getTime()];
-}
 
 function readSpans(): Span[] {
   try {
@@ -100,14 +89,6 @@ function writeSpans(spans: Span[]) {
   } catch {
     // Storage unavailable — the timeline lives in memory only.
   }
-}
-
-/** The end a stretch really counts up to: whichever comes first, its own end or
-    the cap. A running stretch has no end of its own, so it measures to the
-    clock — and the cap is what keeps its green from creeping past eight hours
-    while the switch is forgotten. */
-function cappedEnd(span: Span, fallback: number): number {
-  return Math.min(span.end ?? fallback, span.start + MAX_USEFUL_MS);
 }
 
 /** Drops the stretches too brief to count as work. A stretch that is still
@@ -151,31 +132,12 @@ type Mark = {
     would crowd each other. */
 const HOUR_MARKS = [0, 3, 6, 9, 12, 15, 18, 21, 24];
 
-/** `13:05` — 24-hour and locale-independent, so the tooltip reads the same
-    everywhere. */
-function clock(ms: number): string {
-  const d = new Date(ms);
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${hh}:${mm}`;
-}
-
-/** `2 h 15 min` / `45 min` — the same plain, locale-independent wording the
-    rest of the rail uses. */
-function duration(ms: number): string {
-  const minutes = Math.round(ms / 60_000);
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (h === 0) return `${m} min`;
-  return m === 0 ? `${h} h` : `${h} h ${m} min`;
-}
-
 /** One rail per day — local midnight on the left, the next one on the right.
     Everything the day has covered so far is painted: grey for the hours that
     went by, green for the stretches logged as "useful". The unpainted strip on
     the right is what is left of the day. The one stretch with no end yet is the
     session running now, and it is painted to the clock. */
-function DayTimeline({ spans }: { spans: Span[] }) {
+function DayTimeline({ spans, onOpen }: { spans: Span[]; onOpen: () => void }) {
   const [now, setNow] = useState<number | null>(null);
   const [hoverStart, setHoverStart] = useState<number | null>(null);
   const railRef = useRef<HTMLDivElement>(null);
@@ -194,6 +156,11 @@ function DayTimeline({ spans }: { spans: Span[] }) {
   /** The day's own length, so the share is measured against the real span —
       23 h, 24 h or 25 h — rather than against a flat 86_400_000. */
   let dayLength = 0;
+
+  // Held out here as well as inside the block below, because the tooltip needs
+  // it too: a stretch cut off at midnight has to read as running to 24:00 rather
+  // than wrapping round to 00:00 on the day after the one being shown.
+  const dayEnd = now === null ? 0 : dayBounds(now)[1];
 
   // Nothing is measured until after mount, so the server and the first client
   // render agree on an empty rail.
@@ -240,7 +207,11 @@ function DayTimeline({ spans }: { spans: Span[] }) {
       const start = Math.max(span.start, from);
       const end = Math.min(cappedEnd(span, upTo), upTo);
       paint(cursor, start, "idle");
-      paint(start, end, "useful");
+      // Only the share of the day that counts is painted green. A sliver of a
+      // session that spilled over midnight is not work on the day it landed on,
+      // so the grey simply carries on through it — and the rail's own total
+      // stays the day's total rather than a second, slightly larger number.
+      if (countsOn(span, from, to, now)) paint(start, end, "useful");
       cursor = Math.max(cursor, end);
     }
     paint(cursor, upTo, "idle");
@@ -283,8 +254,19 @@ function DayTimeline({ spans }: { spans: Span[] }) {
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-20 z-10 px-6 sm:bottom-[6.5rem] sm:px-0">
       {/* The padding widens the hover band without moving the rail: the
-          negative margin hands the space straight back to the layout. */}
+          negative margin hands the space straight back to the layout. Clicking
+          anywhere on it — the rail or the band around it — opens the log. */}
       <div
+        role="button"
+        tabIndex={0}
+        aria-label="Open your log"
+        onClick={onOpen}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onOpen();
+          }
+        }}
         onPointerMove={onPointerMove}
         onPointerLeave={() => setHoverStart(null)}
         className="group pointer-events-auto relative mx-auto -my-2 w-full cursor-pointer py-2 sm:w-[60vw]"
@@ -345,7 +327,7 @@ function DayTimeline({ spans }: { spans: Span[] }) {
               className="pointer-events-none absolute bottom-full mb-6 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg border border-border bg-surface px-3 py-2 text-center text-sm font-normal leading-snug tracking-normal text-foreground shadow-md"
             >
               I was doing something useful from {clock(hovered.start)} to{" "}
-              {clock(hovered.end)}.
+              {endClock(hovered.end, dayEnd)}.
             </span>
           ) : null}
 
@@ -505,6 +487,64 @@ export default function Home() {
     });
   }, []);
 
+  const [logOpen, setLogOpen] = useState(false);
+
+  /** A hand edit of the log. It goes through the same three steps the switch
+      itself does — new array, storage, state — so an edited stretch is written
+      exactly like a recorded one, and the drawer and the rail can never be
+      looking at different logs. */
+  const reschedule = useCallback((index: number, end: number) => {
+    setSpans((prev) => {
+      const span = prev[index];
+      // A running stretch has no end to move, and the five-minute floor holds
+      // here as firmly as it does when the switch closes a stretch itself.
+      if (!span || span.end === null) return prev;
+      if (end - span.start < MIN_USEFUL_MS) return prev;
+      const next = [...prev];
+      next[index] = { start: span.start, end };
+      writeSpans(next);
+      return next;
+    });
+  }, []);
+
+  /** Ends the stretch at `index` at `end` *and* keeps the part that ran on into
+      the next day as a stretch of its own, opening at that midnight. Ending a
+      session on the day it began is the one correction that moving an end
+      cannot express: the tail belongs to the next day's list, and one record
+      spread over two days has only the one end to move. The floor is the same
+      as everywhere else — the switch's own rules, applied to a hand edit. */
+  const split = useCallback((index: number, end: number) => {
+    setSpans((prev) => {
+      const span = prev[index];
+      if (!span || span.end === null) return prev;
+      if (end - span.start < MIN_USEFUL_MS) return prev;
+      const midnight = dayBounds(end)[1];
+      // Nothing ran past midnight, so there is nothing to cut off.
+      if (span.end <= midnight) return prev;
+      const next = [...prev];
+      next.splice(
+        index,
+        1,
+        { start: span.start, end },
+        { start: midnight, end: span.end },
+      );
+      writeSpans(next);
+      return next;
+    });
+  }, []);
+
+  const remove = useCallback((index: number) => {
+    setSpans((prev) => {
+      if (prev[index] === undefined) return prev;
+      const next = prev.filter((_, at) => at !== index);
+      writeSpans(next);
+      return next;
+    });
+  }, []);
+
+  const openLog = useCallback(() => setLogOpen(true), []);
+  const closeLog = useCallback(() => setLogOpen(false), []);
+
   // Restore the last state without replaying the slide on first paint.
   useEffect(() => {
     const el = trackRef.current;
@@ -578,9 +618,11 @@ export default function Home() {
     return () => window.clearTimeout(id);
   }, [spans, state, commit]);
 
-  // The arrow keys mirror the slide.
+  // The arrow keys mirror the slide — but not while the log is open, where a
+  // stray arrow would flip the switch behind the sheet.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if (logOpen) return;
       if (event.key === "ArrowLeft") {
         event.preventDefault();
         commit(0);
@@ -592,7 +634,7 @@ export default function Home() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [commit]);
+  }, [commit, logOpen]);
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const el = trackRef.current;
@@ -670,7 +712,23 @@ export default function Home() {
     <>
       {/* `pb` nudges the label above the geometric centre — the optical middle
           of a page sits a little high once the timeline is down there. */}
-      <main className="flex flex-1 items-center bg-background pb-12 text-foreground">
+      <main className="relative isolate flex flex-1 items-center bg-background pb-12 text-foreground">
+        {/* The bloom, and the one thing on the page that does not travel with
+            the track: it is pinned to the screen rather than carried by a panel,
+            so flipping the switch fades it in or out where it stands instead of
+            dragging it across with the words. Deepest at the middle of the
+            screen, thinning to nothing at every edge.
+
+            `isolate` on `main` gives this layer something to be negative
+            inside: it settles straight onto the page's own background, one step
+            under everything that reads. */}
+        <span
+          aria-hidden="true"
+          className={`pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(closest-side,var(--useful-glow),transparent)] transition-opacity duration-700 ease-out motion-reduce:transition-none ${
+            state === "useful" ? "opacity-100" : "opacity-0"
+          }`}
+        />
+
         <p role="status" aria-live="polite" className="sr-only">
           {LABELS[state]}
         </p>
@@ -696,7 +754,16 @@ export default function Home() {
         </div>
       </main>
 
-      <DayTimeline spans={spans} />
+      <DayTimeline spans={spans} onOpen={openLog} />
+
+      <Drawer
+        open={logOpen}
+        spans={spans}
+        onClose={closeLog}
+        onReschedule={reschedule}
+        onSplit={split}
+        onDelete={remove}
+      />
     </>
   );
 }

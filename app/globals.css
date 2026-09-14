@@ -13,10 +13,21 @@
   --foreground: #25242a;
   --foreground-muted: #6d6770;
   --foreground-subtle: #9f99a3;
+  --foreground-faint: #b0a9b2;
 
   /* Borders & focus */
   --border: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.22);
   --ring: rgba(0, 0, 0, 0.22);
+
+  /* Quiet fills — the three steps the drawer uses to separate a surface from
+     the one behind it: a hover wash, a resting tile, and the stronger wash a
+     control takes when the pointer is on it. Warm-shifted from Orkest's cool
+     greys so they sit on this page's off-white without going blue. */
+  --muted: rgba(37, 36, 42, 0.05);
+  --hover-bg: rgba(37, 36, 42, 0.04);
+  --hover-bg-strong: rgba(37, 36, 42, 0.07);
+  --overlay: rgba(0, 0, 0, 0.18);
 
   /* Accent — text selection only; the switch itself uses no chrome */
   --accent: #25242a;
@@ -30,8 +41,24 @@
   --idle-mark: #dcdadd;
   --useful-mark: #5fd383;
 
+  /* The bloom that sits behind the "useful" label — a whisper of green, never
+     a surface. Kept apart from --useful-mark so the rail and the background can
+     be tuned without dragging each other along. */
+  --useful-glow: rgba(95, 211, 131, 0.3);
+
   /* Motion */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Radii, named by the role they play rather than by size, so none of them
+     collides with Tailwind's own scale — the page outside the drawer keeps the
+     radii it already had. Declared in `@theme` further down, not here. */
+
+  /* Elevation. Only the drawer spends any: the sheet floats over the page, and
+     the one shadow inside it marks the selected segment of a picker. Named
+     apart from the `--shadow-*` theme keys below so neither refers to itself. */
+  --elevation-card: 0 1px 2px rgba(28, 24, 35, 0.04);
+  --elevation-pop: 0 20px 45px rgba(28, 24, 35, 0.1);
+  --elevation-sheet: 0 28px 80px rgba(28, 24, 35, 0.14);
 }
 
 /* Follows the OS appearance so the page never flashes the wrong surface. */
@@ -43,9 +70,16 @@
     --foreground: #f5f5f5;
     --foreground-muted: #a3a3a3;
     --foreground-subtle: #737373;
+    --foreground-faint: #6a6570;
 
     --border: rgba(255, 255, 255, 0.1);
+    --border-strong: rgba(255, 255, 255, 0.25);
     --ring: rgba(255, 255, 255, 0.3);
+
+    --muted: rgba(255, 255, 255, 0.06);
+    --hover-bg: rgba(255, 255, 255, 0.06);
+    --hover-bg-strong: rgba(255, 255, 255, 0.1);
+    --overlay: rgba(0, 0, 0, 0.55);
 
     --accent: #f5f5f5;
     --accent-hover: #ffffff;
@@ -54,6 +88,12 @@
     --track: rgba(255, 255, 255, 0.06);
     --idle-mark: #3b393e;
     --useful-mark: #4cb872;
+    --useful-glow: rgba(76, 184, 114, 0.26);
+
+    /* Deeper, because the same shadow over a near-black sheet reads as nothing. */
+    --elevation-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --elevation-pop: 0 20px 45px rgba(0, 0, 0, 0.45);
+    --elevation-sheet: 0 28px 80px rgba(0, 0, 0, 0.55);
   }
 }
 
@@ -66,9 +106,16 @@
   --color-foreground: var(--foreground);
   --color-foreground-muted: var(--foreground-muted);
   --color-foreground-subtle: var(--foreground-subtle);
+  --color-foreground-faint: var(--foreground-faint);
 
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-ring: var(--ring);
+
+  --color-muted: var(--muted);
+  --color-hover-bg: var(--hover-bg);
+  --color-hover-bg-strong: var(--hover-bg-strong);
+  --color-overlay: var(--overlay);
 
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
@@ -78,12 +125,36 @@
   --color-idle-mark: var(--idle-mark);
   --color-useful-mark: var(--useful-mark);
 
+  --radius-chip: 8px;
+  --radius-field: 12px;
+  --radius-card: 16px;
+  --radius-sheet: 28px;
+
+  --shadow-card: var(--elevation-card);
+  --shadow-pop: var(--elevation-pop);
+  --shadow-sheet: var(--elevation-sheet);
+
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", sans-serif;
   --font-display: var(--font-manrope), ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", sans-serif;
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Orkest's arrival for anything that floats in — a 4px rise under a fade.
+     Only the bar labels use it so far. */
+  --animate-fade-slide-in: fade-slide-in 200ms var(--ease-out);
+
+  @keyframes fade-slide-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 }
 
 @layer base {
@@ -118,5 +189,40 @@
   :focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
+  }
+
+  /* Tailwind v4 resets every button to `cursor: default`, so the hand has to be
+     asked for. Every control in this app is a pointer target, so it is asked
+     for once here rather than once per button. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}
+
+/* A scroll area that only shows a hairline of thumb when the pointer is over
+   it. Scoped to a class rather than applied to every scrollbar on the page, so
+   the sheet can have it and nothing else has to. */
+@layer utilities {
+  .scroll-quiet {
+    scrollbar-width: thin;
+    scrollbar-color: var(--hover-bg-strong) transparent;
+  }
+  .scroll-quiet::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  .scroll-quiet::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scroll-quiet::-webkit-scrollbar-thumb {
+    background: var(--hover-bg-strong);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  .scroll-quiet::-webkit-scrollbar-thumb:hover {
+    background: var(--foreground-faint);
+    background-clip: content-box;
   }
 }
