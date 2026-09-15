@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import Link from "next/link";
@@ -12,6 +12,7 @@ import {
   type MilestoneGroup,
 } from "./achievements";
 import { downloadCsv } from "./csv";
+import ThemeToggle from "./theme-toggle";
 import {
   MIN_USEFUL_MS,
   PERIODS,
@@ -73,7 +74,9 @@ const FIELD =
   "rounded-field border border-border bg-surface text-foreground transition-colors duration-150 focus:border-border-strong focus:outline-none";
 
 /** A panel of the log — a hairline on the sheet's own surface, with the title
-    standing in the margin above the figures it names. */
+    standing in the margin above the figures it names. Its title is an `h2`: the
+    sheet carries no heading of its own any more, so these panels are the top of
+    the outline rather than a level under it. */
 function Card({
   title,
   hint,
@@ -98,9 +101,9 @@ function Card({
           instead of forcing the title to break. */}
       <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-5 py-3">
         <div className="flex items-baseline gap-2">
-          <h3 className="text-xs font-medium tracking-wide text-foreground-muted">
+          <h2 className="text-xs font-medium tracking-wide text-foreground-muted">
             {title}
-          </h3>
+          </h2>
           {hint ? (
             <span className="text-[11px] leading-none text-foreground-faint">
               {hint}
@@ -757,6 +760,14 @@ export default function Drawer({
   onSplit,
   onDelete,
 }: Props) {
+  // The export row names itself twice, and both halves are needed. The label on
+  // the left says what is being handed over; the button's own word says what
+  // pressing it does. Joined into one accessible name, they are a sentence a
+  // screen reader can act on — and one that still contains the word on the
+  // button, which is what speech control matches against.
+  const exportLabel = useId();
+  const downloadLabel = useId();
+
   // Today is what a log is opened to check, so the averages start there
   // instead of on the week.
   const [period, setPeriod] = useState<Period>("day");
@@ -1073,45 +1084,40 @@ export default function Drawer({
           aria-modal="true"
           aria-label="Your log"
           className={cx(
-            "flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-sheet border border-b-0 border-border bg-surface shadow-sheet transition-transform duration-500 ease-out motion-reduce:transition-none",
+            "relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-sheet border border-b-0 border-border bg-surface shadow-sheet transition-transform duration-500 ease-out motion-reduce:transition-none",
             open ? "translate-y-0" : "translate-y-full",
           )}
         >
-          <div className="flex justify-center pt-2">
+          {/* The whole sheet scrolls — the panels travel to its top edge — and
+              the strip holding the grabber floats over them. That overlay is
+              the only thing that makes a translucent bar mean anything: laid on
+              the sheet's own paint, glass and paint look identical, and it is
+              only with something passing underneath that the blur has work to
+              do. Left opaque it would look exactly as it did before.
+
+              The strip is still the way out: the bar is 40px wide, the target
+              is the sheet's full width and a comfortable 28px deep. No rule
+              under it — the change of material is the separation now. And
+              `aria-hidden` sits on the bar rather than on the button: the bar
+              is the drawing, the button is the control, and the control needs a
+              name to be read aloud. */}
+          <button
+            type="button"
+            onClick={close}
+            aria-label="Close"
+            className="group absolute inset-x-0 top-0 z-10 flex justify-center bg-surface/50 py-3 backdrop-blur-xl backdrop-saturate-150"
+          >
             <span
               aria-hidden="true"
-              className="h-1 w-10 rounded-full bg-hover-bg-strong"
+              className="h-1 w-10 rounded-full bg-hover-bg-strong transition-colors group-hover:bg-foreground-faint"
             />
-          </div>
+          </button>
 
-          <header className="mx-auto flex w-full max-w-[1600px] items-start justify-between gap-6 px-5 pb-2 pt-1 sm:px-6 lg:px-8">
-            <div>
-              <h2 className="font-sans text-lg font-medium leading-tight tracking-tight text-foreground">
-                Your log
-              </h2>
-            </div>
-            <button
-              type="button"
-              onClick={close}
-              aria-label="Close"
-              className="-mr-1 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-field text-foreground-muted transition-colors hover:bg-hover-bg hover:text-foreground"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={1.5}
-                strokeLinecap="round"
-                className="h-4 w-4"
-              >
-                <path d="M18 6 6 18" />
-                <path d="m6 6 12 12" />
-              </svg>
-            </button>
-          </header>
-
-          <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto border-t border-border">
-            <div className="mx-auto w-full max-w-[1600px] px-5 pb-12 pt-4 sm:px-6 lg:px-8">
+          <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto">
+            {/* 44px of air: the 28px strip plus the 16px gap it used to sit
+                above, so the first card starts where it always did and nothing
+                hides under the glass until the sheet is scrolled. */}
+            <div className="mx-auto w-full max-w-[1600px] px-5 pb-12 pt-11 sm:px-6 lg:px-8">
               {/* Two columns once there is room for two; one before that, in
                   the order of how often the thing is looked at. */}
               <div className="grid items-start gap-5 xl:grid-cols-12">
@@ -1652,42 +1658,53 @@ export default function Drawer({
                 </Card>
               </div>
 
+              {/* How the page is painted. It sits down here with the export
+                  rather than on the first screenful of the sheet: both are
+                  things you come to the sheet to do, not figures you came to
+                  read. */}
+              <ThemeToggle />
+
               {/* The log itself, out. One row a stretch, which is all the log
                   actually holds — every figure in this sheet is derived from
                   those rows, so this is the whole history rather than a summary
                   of it. Disabled on an empty log, where there is no file to
-                  write. */}
-              <div className="mt-5 flex items-center justify-between gap-4">
+                  write.
+
+                  Laid out like the appearance above it — a quiet label on the
+                  left, its control on the right — so the foot of the sheet
+                  reads as one list rather than two. The button says its own
+                  word instead of wearing an arrow into a tray: at this size a
+                  glyph is a guess, and `Download` is not. Its name is the two
+                  halves of the row together, since neither alone says both
+                  what leaves and what happens when you press. */}
+              <div className="mt-3 flex items-center justify-between gap-4">
+                <span
+                  id={exportLabel}
+                  className="text-xs text-foreground-subtle"
+                >
+                  Export all data
+                </span>
                 <button
                   type="button"
                   disabled={spans.length === 0}
                   onClick={() => downloadCsv(spans)}
-                  className="inline-flex h-9 items-center gap-2 rounded-field border border-border px-3 text-sm text-foreground-muted transition-colors hover:bg-hover-bg hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                  aria-labelledby={`${exportLabel} ${downloadLabel}`}
+                  className="inline-flex h-7 shrink-0 items-center rounded-field border border-border px-2.5 text-xs font-medium text-foreground-muted transition-colors hover:bg-hover-bg hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
                 >
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="h-4 w-4"
-                    aria-hidden="true"
-                  >
-                    <path d="M12 4v11" />
-                    <path d="m7.5 10.5 4.5 4.5 4.5-4.5" />
-                    <path d="M5 19.5h14" />
-                  </svg>
-                  Export all data
+                  <span id={downloadLabel}>Download</span>
                 </button>
-
-                <Link
-                  href="/privacy"
-                  className="text-xs text-foreground-faint transition-colors hover:text-foreground-muted"
-                >
-                  Privacy
-                </Link>
               </div>
+
+              {/* Left, under the label it belongs with, and a step further down
+                  than the rest of the foot: it is the way out of the sheet
+                  rather than another row of it, and the extra air is what says
+                  so. An inline box keeps the link as wide as its own words. */}
+              <Link
+                href="/privacy"
+                className="mt-5 inline-block text-xs text-foreground-faint transition-colors hover:text-foreground-muted"
+              >
+                Privacy
+              </Link>
             </div>
           </div>
         </section>

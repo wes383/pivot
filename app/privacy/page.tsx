@@ -31,7 +31,7 @@ export default function Privacy() {
               What is stored, and where
             </h2>
             <p className="mt-2">
-              Two values are stored in your browser&rsquo;s local storage:
+              Three values are stored in your browser&rsquo;s local storage:
             </p>
             <ul className="mt-3 space-y-3">
               <li>
@@ -48,6 +48,15 @@ export default function Privacy() {
                 </code>
                 <span className="mt-1 block">
                   The full history of stretches you have marked as useful.
+                </span>
+              </li>
+              <li>
+                <code className="rounded bg-muted px-1.5 py-0.5 text-sm text-foreground">
+                  pivot.theme
+                </code>
+                <span className="mt-1 block">
+                  Which appearance you picked: light, dark, or following your
+                  system settings.
                 </span>
               </li>
             </ul>

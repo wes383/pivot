@@ -3,6 +3,9 @@
 /* Pivot — design tokens adapted from Orkest UI
    Warm minimal aesthetic · quiet surfaces, one near-black accent. */
 
+/* The light palette, and the one the server renders into the HTML — it cannot
+   know what was picked, so this is what the sheet arrives wearing, and what is
+   left standing on a browser that never runs the theme script. */
 :root {
   /* Surfaces */
   --background: #fcfbfa;
@@ -61,40 +64,47 @@
   --elevation-sheet: 0 28px 80px rgba(28, 24, 35, 0.14);
 }
 
-/* Follows the OS appearance so the page never flashes the wrong surface. */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #101010;
-    --surface: #181818;
+/* The dark palette, worn by the one attribute the theme script writes — see
+   `theme.ts`. An attribute rather than a `prefers-color-scheme` block, because
+   the appearance is now the reader's to pick: someone who picks dark on a light
+   desktop means it, and someone who picks `system` is served by the script
+   resolving the OS and writing the answer here.
 
-    --foreground: #f5f5f5;
-    --foreground-muted: #a3a3a3;
-    --foreground-subtle: #737373;
-    --foreground-faint: #6a6570;
+   Both palettes are hand-tuned rather than one derived from the other — the
+   greys shift warm, and the greens are eased back so a near-black sheet does
+   not glare. The blocks are therefore parallel, token for token, and each of
+   them is meant to be edited on its own. */
+:root[data-theme="dark"] {
+  --background: #101010;
+  --surface: #181818;
 
-    --border: rgba(255, 255, 255, 0.1);
-    --border-strong: rgba(255, 255, 255, 0.25);
-    --ring: rgba(255, 255, 255, 0.3);
+  --foreground: #f5f5f5;
+  --foreground-muted: #a3a3a3;
+  --foreground-subtle: #737373;
+  --foreground-faint: #6a6570;
 
-    --muted: rgba(255, 255, 255, 0.06);
-    --hover-bg: rgba(255, 255, 255, 0.06);
-    --hover-bg-strong: rgba(255, 255, 255, 0.1);
-    --overlay: rgba(0, 0, 0, 0.55);
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.25);
+  --ring: rgba(255, 255, 255, 0.3);
 
-    --accent: #f5f5f5;
-    --accent-hover: #ffffff;
-    --accent-fg: #111111;
+  --muted: rgba(255, 255, 255, 0.06);
+  --hover-bg: rgba(255, 255, 255, 0.06);
+  --hover-bg-strong: rgba(255, 255, 255, 0.1);
+  --overlay: rgba(0, 0, 0, 0.55);
 
-    --track: rgba(255, 255, 255, 0.06);
-    --idle-mark: #3b393e;
-    --useful-mark: #4cb872;
-    --useful-glow: rgba(76, 184, 114, 0.26);
+  --accent: #f5f5f5;
+  --accent-hover: #ffffff;
+  --accent-fg: #111111;
 
-    /* Deeper, because the same shadow over a near-black sheet reads as nothing. */
-    --elevation-card: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --elevation-pop: 0 20px 45px rgba(0, 0, 0, 0.45);
-    --elevation-sheet: 0 28px 80px rgba(0, 0, 0, 0.55);
-  }
+  --track: rgba(255, 255, 255, 0.06);
+  --idle-mark: #3b393e;
+  --useful-mark: #4cb872;
+  --useful-glow: rgba(76, 184, 114, 0.26);
+
+  /* Deeper, because the same shadow over a near-black sheet reads as nothing. */
+  --elevation-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --elevation-pop: 0 20px 45px rgba(0, 0, 0, 0.45);
+  --elevation-sheet: 0 28px 80px rgba(0, 0, 0, 0.55);
 }
 
 /* `inline` keeps utilities pointing straight at the vars above, so the
@@ -161,13 +171,16 @@
   html {
     background: var(--background);
     -webkit-text-size-adjust: 100%;
+    /* `color-scheme` is the other half of the theme, and the browser reads it
+       for the parts of the page it draws itself: the calendar and clock buttons
+       inside a date or a time field, scrollbars, the default surface of a form
+       control. It has to be told separately from the tokens, and it has to
+       follow the same attribute they do. */
     color-scheme: light;
   }
 
-  @media (prefers-color-scheme: dark) {
-    html {
-      color-scheme: dark;
-    }
+  html[data-theme="dark"] {
+    color-scheme: dark;
   }
 
   body {
@@ -224,5 +237,33 @@
   .scroll-quiet::-webkit-scrollbar-thumb:hover {
     background: var(--foreground-faint);
     background-clip: content-box;
+  }
+}
+
+/* ── The crossover ─────────────────────────────────────────────────────────
+   When the appearance flips, every surface has to cross over together: the
+   sheet's own fill, the cards on it, every hairline between them. Only the body
+   carries a colour transition of its own, so the theme control puts this class
+   on `<html>` for the length of the fade and everything is given the same short
+   crossover for as long as it stands.
+
+   Left outside `@layer` on purpose: it has to outrank the utilities it is
+   standing in for — the sheet's `transition-transform`, a chip's
+   `transition-colors` — and an unlayered rule is the one that can. It is on the
+   page for 300ms at a time, in answer to a click, and never on its own. */
+html.theme-crossover,
+html.theme-crossover *,
+html.theme-crossover *::before,
+html.theme-crossover *::after {
+  transition: background-color 300ms var(--ease-out),
+    border-color 300ms var(--ease-out), color 300ms var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.theme-crossover,
+  html.theme-crossover *,
+  html.theme-crossover *::before,
+  html.theme-crossover *::after {
+    transition: none;
   }
 }
